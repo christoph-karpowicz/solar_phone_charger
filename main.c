@@ -1,6 +1,5 @@
 #define F_CPU 9600000
 
-#include <avr/io.h>
 #include <util/delay.h>
 #include "display.h"
 
@@ -32,17 +31,27 @@ int main(void) {
         _delay_ms(200);
         uint16_t adc_result = adc_read();
         if (adc_result >= 1000){
-            display_number(5);
+            display_number(5, 0);
+        } else if (adc_result >= 921) {
+            display_number(4, 1);
         } else if (adc_result >= 820) {
-            display_number(4);
+            display_number(4, 0);
+        } else if (adc_result >= 716) {
+            display_number(3, 1);
         } else if (adc_result >= 615) {
-            display_number(3);
+            display_number(3, 0);
+        } else if (adc_result >= 512) {
+            display_number(2, 1);
         } else if (adc_result >= 410) {
-            display_number(2);
+            display_number(2, 0);
+        } else if (adc_result >= 307) {
+            display_number(1, 1);
         } else if (adc_result >= 205) {
-            display_number(1);
+            display_number(1, 0);
+        } else if (adc_result >= 102) {
+            display_number(0, 1);
         } else {
-            display_number(0);
+            display_number(0, 0);
         }
     }
     return 0;

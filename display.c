@@ -15,8 +15,8 @@ static const uint8_t DIGITS[] PROGMEM = {
     0b11111100
 };
 
-void display_number(const uint8_t number) {
-    display(pgm_read_word(&DIGITS[number]));
+void display_number(const uint8_t number, const uint8_t with_dot) {
+    display(pgm_read_word(&DIGITS[number]) | ((1 << with_dot) & 2));
 }
 
 void display(const uint8_t output) {
