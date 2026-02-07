@@ -12,7 +12,7 @@ static const uint8_t DIGITS[] PROGMEM = {
     0b00111101,
     0b11000100,
     0b11111101,
-    0b11101100
+    0b11111100
 };
 
 void display_number(const uint8_t number) {
