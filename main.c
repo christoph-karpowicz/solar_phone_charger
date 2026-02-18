@@ -1,7 +1,10 @@
 #define F_CPU 9600000
 
 #include <util/delay.h>
+#include <avr/interrupt.h>
 #include "display.h"
+
+struct DisplayNumber last_dn;
 
 void init() {
     // init display
@@ -9,20 +12,30 @@ void init() {
     // init driver
     DDRB |= _BV(PB3);
 
-    // enable ADC with 64 prescaler division factor
-    ADCSRA |= _BV(ADPS1) | _BV(ADPS2) | _BV(ADEN);
-    // disable ADC
-    // ADCSRA &= ~_BV(ADEN);
-}
+    // Timer/Counter Output Compare Match B Interrupt Enable
+    TIMSK0 |= _BV(OCIE0B);
+    // set the timer's TOP value
+    OCR0B = 1024;
+    // set CTC timer mode
+    TCCR0A |= _BV(WGM01);
+    // set the 1024 timer prescaler
+    TCCR0B |= _BV(CS02) | _BV(CS00);
 
-uint16_t adc_read() {
-    // start conversion
-    ADCSRA |= _BV(ADSC);
+    // enable ADC with 64 prescaler division factor and auto trigger, ADC interrupt enabled
+    ADCSRA |= _BV(ADPS1) | _BV(ADPS2) | _BV(ADEN) | _BV(ADATE) | _BV(ADIE);
+    // set ADC auto trigger source to Timer/Counter Compare Match B
+    ADCSRB |= _BV(ADTS2) | _BV(ADTS0);
     // select PB4 (ADC2) analog channel with AVCC ref
     ADMUX = _BV(MUX1);
-    // wait for end of conversion
-    while (ADCSRA & _BV(ADSC));
-    return ADC;
+    // disable ADC
+    // ADCSRA &= ~_BV(ADEN);
+
+    // Enable global interrupts
+    sei();
+
+    // set to out of bounds numbers
+    last_dn.digit = 9;
+    last_dn.with_dot = 9;
 }
 
 void charging_on() {
@@ -33,45 +46,58 @@ void charging_off() {
     PORTB &= ~_BV(PB3);
 }
 
-int main(void) {
-    init();
-    while (1) {
-        _delay_ms(200);
-        uint16_t adc_result = adc_read();
-        if (adc_result >= 1000){
-            display_number(5, 0);
-            charging_on();
-        } else if (adc_result >= 921) {
-            display_number(4, 1);
-            charging_on();
-        } else if (adc_result >= 820) {
-            display_number(4, 0);
-            charging_on();
-        } else if (adc_result >= 716) {
-            display_number(3, 1);
-            charging_off();
-        } else if (adc_result >= 615) {
-            display_number(3, 0);
-            charging_off();
-        } else if (adc_result >= 512) {
-            display_number(2, 1);
-            charging_off();
-        } else if (adc_result >= 410) {
-            display_number(2, 0);
-            charging_off();
-        } else if (adc_result >= 307) {
-            display_number(1, 1);
-            charging_off();
-        } else if (adc_result >= 205) {
-            display_number(1, 0);
-            charging_off();
-        } else if (adc_result >= 102) {
-            display_number(0, 1);
+// ADC Conversion Complete interrupt
+ISR(ADC_vect) {
+    uint16_t adc_result = ADC;
+    struct DisplayNumber dn;
+    if (adc_result >= 1000){
+        dn.digit = 5;
+        dn.with_dot = 0;
+    } else if (adc_result >= 921) {
+        dn.digit = 4;
+        dn.with_dot = 1;
+    } else if (adc_result >= 820) {
+        dn.digit = 4;
+        dn.with_dot = 0;
+    } else if (adc_result >= 716) {
+        dn.digit = 3;
+        dn.with_dot = 1;
+    } else if (adc_result >= 615) {
+        dn.digit = 3;
+        dn.with_dot = 0;
+    } else if (adc_result >= 512) {
+        dn.digit = 2;
+        dn.with_dot = 1;
+    } else if (adc_result >= 410) {
+        dn.digit = 2;
+        dn.with_dot = 0;
+    } else if (adc_result >= 307) {
+        dn.digit = 1;
+        dn.with_dot = 1;
+    } else if (adc_result >= 205) {
+        dn.digit = 1;
+        dn.with_dot = 0;
+    } else if (adc_result >= 102) {
+        dn.digit = 0;
+        dn.with_dot = 1;
+    } else {
+        dn.digit = 0;
+        dn.with_dot = 0;
+    }
+
+    if (dn.digit != last_dn.digit || dn.with_dot != last_dn.with_dot) {
+        display_number(dn);
+        if (dn.digit < 4) {
             charging_off();
         } else {
-            display_number(0, 0);
-            charging_off();
+            charging_on();
         }
+        last_dn = dn;
     }
+}
+
+int main(void) {
+    init();
+    while (1);
     return 0;
 }
