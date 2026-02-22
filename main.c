@@ -1,4 +1,4 @@
-#define F_CPU 9600000
+#define F_CPU 37500
 
 #include <util/delay.h>
 #include <avr/interrupt.h>
@@ -7,15 +7,10 @@
 struct DisplayNumber last_dn;
 
 void init() {
-    // init display
-    DDRB |= _BV(SHIFT_REG_SCK_PIN) | _BV(SHIFT_REG_RCK_PIN) | _BV(SHIFT_REG_SERIAL_PIN);
-    // init driver
-    DDRB |= _BV(PB3);
-
     // Timer/Counter Output Compare Match B Interrupt Enable
     TIMSK0 |= _BV(OCIE0B);
     // set the timer's TOP value
-    OCR0B = 1024;
+    OCR0B = 256;
     // set CTC timer mode
     TCCR0A |= _BV(WGM01);
     // set the 1024 timer prescaler
@@ -29,6 +24,15 @@ void init() {
     ADMUX = _BV(MUX1);
     // disable ADC
     // ADCSRA &= ~_BV(ADEN);
+
+    // init display
+    DDRB |= _BV(SHIFT_REG_SCK_PIN) | _BV(SHIFT_REG_RCK_PIN) | _BV(SHIFT_REG_SERIAL_PIN);
+    // init driver
+    DDRB |= _BV(PB3);
+
+    // set the system clock prescaler to 256
+    CLKPR = _BV(CLKPCE);
+    CLKPR = _BV(CLKPS3);
 
     // Enable global interrupts
     sei();
