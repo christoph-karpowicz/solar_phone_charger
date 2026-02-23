@@ -3,20 +3,21 @@
 #define OUTPUT_PINS 8
 
 static const uint8_t DIGITS[] PROGMEM = {
-    0b11101101,
-    0b10000100,
-    0b11011001,
-    0b11011100,
-    0b10110100,
-    0b01111100,
-    0b00111101,
-    0b11000100,
-    0b11111101,
-    0b11111100
+    0b11101101, // 0
+    0b10000100, // 1
+    0b11011001, // 2
+    0b11011100, // 3
+    0b10110100, // 4
+    0b01111100, // 5
+    0b00000000 // empty
 };
 
-void display_number(const struct DisplayNumber dn) {
-    display(pgm_read_word(&DIGITS[dn.digit]) | ((1 << dn.with_dot) & 2));
+void display_number(const int8_t digit, const int8_t with_dot) {
+    display(pgm_read_word(&DIGITS[digit]) | ((1 << with_dot) & 2));
+}
+
+void display_empty() {
+    display(DIGITS[6]);
 }
 
 void display(const uint8_t output) {

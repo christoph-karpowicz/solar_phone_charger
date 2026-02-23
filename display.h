@@ -19,12 +19,8 @@
     4
 */
 
-struct DisplayNumber {
-  uint8_t digit;
-  uint8_t with_dot;
-};
-
-void display_number(const struct DisplayNumber dn);
+void display_number(const int8_t digit, const int8_t with_dot);
+void display_empty();
 void display(const uint8_t output);
 
 #endif

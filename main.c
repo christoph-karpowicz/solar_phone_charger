@@ -1,10 +1,18 @@
+// #define F_CPU 1200000
 #define F_CPU 37500
 
 #include <util/delay.h>
 #include <avr/interrupt.h>
 #include "display.h"
 
-struct DisplayNumber last_dn;
+#define V_CHARGING_THRESHOLD 4
+
+volatile int8_t last_digit;
+volatile int8_t last_with_dot;
+volatile uint16_t blink_counter = 0;
+volatile int8_t digit_reads[10];
+volatile int8_t dot_reads[10];
+volatile uint8_t read_counter = 0;
 
 void init() {
     // Timer/Counter Output Compare Match B Interrupt Enable
@@ -33,13 +41,14 @@ void init() {
     // set the system clock prescaler to 256
     CLKPR = _BV(CLKPCE);
     CLKPR = _BV(CLKPS3);
+    // CLKPR = _BV(CLKPS1) | _BV(CLKPS0);
 
     // Enable global interrupts
     sei();
+}
 
-    // set to out of bounds numbers
-    last_dn.digit = 9;
-    last_dn.with_dot = 9;
+uint8_t is_charging_on() {
+    return PINB & _BV(PB3);
 }
 
 void charging_on() {
@@ -50,54 +59,74 @@ void charging_off() {
     PORTB &= ~_BV(PB3);
 }
 
+int8_t find_max(volatile int8_t arr[10]) {
+    int8_t max = arr[0];
+    int8_t i;
+    for (i = 1; i < 10; i++) {
+        if (arr[i] > max)
+            max = arr[i];
+    }
+    return max;
+}
+
 // ADC Conversion Complete interrupt
 ISR(ADC_vect) {
     uint16_t adc_result = ADC;
-    struct DisplayNumber dn;
     if (adc_result >= 1000){
-        dn.digit = 5;
-        dn.with_dot = 0;
+        digit_reads[read_counter] = 5;
+        dot_reads[read_counter] = 0;
     } else if (adc_result >= 921) {
-        dn.digit = 4;
-        dn.with_dot = 1;
+        digit_reads[read_counter] = 4;
+        dot_reads[read_counter] = 1;
     } else if (adc_result >= 820) {
-        dn.digit = 4;
-        dn.with_dot = 0;
+        digit_reads[read_counter] = 4;
+        dot_reads[read_counter] = 0;
     } else if (adc_result >= 716) {
-        dn.digit = 3;
-        dn.with_dot = 1;
+        digit_reads[read_counter] = 3;
+        dot_reads[read_counter] = 1;
     } else if (adc_result >= 615) {
-        dn.digit = 3;
-        dn.with_dot = 0;
+        digit_reads[read_counter] = 3;
+        dot_reads[read_counter] = 0;
     } else if (adc_result >= 512) {
-        dn.digit = 2;
-        dn.with_dot = 1;
+        digit_reads[read_counter] = 2;
+        dot_reads[read_counter] = 1;
     } else if (adc_result >= 410) {
-        dn.digit = 2;
-        dn.with_dot = 0;
+        digit_reads[read_counter] = 2;
+        dot_reads[read_counter] = 0;
     } else if (adc_result >= 307) {
-        dn.digit = 1;
-        dn.with_dot = 1;
+        digit_reads[read_counter] = 1;
+        dot_reads[read_counter] = 1;
     } else if (adc_result >= 205) {
-        dn.digit = 1;
-        dn.with_dot = 0;
+        digit_reads[read_counter] = 1;
+        dot_reads[read_counter] = 0;
     } else if (adc_result >= 102) {
-        dn.digit = 0;
-        dn.with_dot = 1;
+        digit_reads[read_counter] = 0;
+        dot_reads[read_counter] = 1;
     } else {
-        dn.digit = 0;
-        dn.with_dot = 0;
+        digit_reads[read_counter] = 0;
+        dot_reads[read_counter] = 0;
     }
 
-    if (dn.digit != last_dn.digit || dn.with_dot != last_dn.with_dot) {
-        display_number(dn);
-        if (dn.digit < 4) {
-            charging_off();
-        } else {
-            charging_on();
+    if (read_counter == 9) {
+        display_empty();
+        int8_t max_digit_read = find_max(digit_reads);
+        int8_t max_dot_read = find_max(dot_reads);
+        if (max_digit_read != last_digit || max_dot_read != last_with_dot) {
+            if (max_digit_read < V_CHARGING_THRESHOLD) {
+                charging_off();
+            } else {
+                charging_on();
+                blink_counter = 0;
+            }
+            display_number(max_digit_read, max_dot_read);
+            last_digit = max_digit_read;
+            last_with_dot = max_dot_read;
         }
-        last_dn = dn;
+        read_counter = 0;
     }
+
+    blink_counter++;
+    read_counter++;
 }
 
 int main(void) {
