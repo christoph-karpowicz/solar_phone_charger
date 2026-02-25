@@ -1,4 +1,3 @@
-// #define F_CPU 1200000
 #define F_CPU 37500
 
 #include <util/delay.h>
@@ -10,9 +9,7 @@
 
 volatile int8_t last_digit;
 volatile int8_t last_with_dot;
-volatile uint16_t blink_counter = 0;
 volatile int8_t digit_reads[10];
-volatile int8_t dot_reads[10];
 volatile uint8_t array_counter = 0;
 volatile uint8_t wait_counter = 0;
 
@@ -48,17 +45,16 @@ void init() {
     // set the system clock prescaler to 256
     CLKPR = _BV(CLKPCE);
     CLKPR = _BV(CLKPS3);
-    // CLKPR = _BV(CLKPS1) | _BV(CLKPS0);
-
-    // Enable global interrupts
-    sei();
 
     last_digit = -1;
     last_with_dot = -1;
     adc_result = 0;
     wait = false;
     adc_processing = false;
-    display_empty();
+    display_number(3,1);
+
+    // Enable global interrupts
+    sei();
 }
 
 uint8_t is_charging_on() {
@@ -82,6 +78,15 @@ bool every_above_threshold(int8_t arr[10]) {
     return true;
 }
 
+bool every_below_threshold(int8_t arr[10]) {
+    uint8_t i;
+    for (i = 0; i < 10; i++) {
+        if (arr[i] >= V_CHARGING_THRESHOLD)
+            return false;
+    }
+    return true;
+}
+
 uint16_t adc_read() {
     // start conversion
     ADCSRA |= _BV(ADSC);
@@ -94,60 +99,58 @@ uint16_t adc_read() {
 
 void process_adc_read(const uint16_t adc_result_val) {
     adc_processing = true;
+    uint8_t with_dot;
     if (adc_result_val >= 1000){
         digit_reads[array_counter] = 5;
-        dot_reads[array_counter] = 0;
+        with_dot = 0;
     } else if (adc_result_val >= 921) {
         digit_reads[array_counter] = 4;
-        dot_reads[array_counter] = 1;
+        with_dot = 1;
     } else if (adc_result_val >= 820) {
         digit_reads[array_counter] = 4;
-        dot_reads[array_counter] = 0;
+        with_dot = 0;
     } else if (adc_result_val >= 716) {
         digit_reads[array_counter] = 3;
-        dot_reads[array_counter] = 1;
+        with_dot = 1;
     } else if (adc_result_val >= 615) {
         digit_reads[array_counter] = 3;
-        dot_reads[array_counter] = 0;
+        with_dot = 0;
     } else if (adc_result_val >= 512) {
         digit_reads[array_counter] = 2;
-        dot_reads[array_counter] = 1;
+        with_dot = 1;
     } else if (adc_result_val >= 410) {
         digit_reads[array_counter] = 2;
-        dot_reads[array_counter] = 0;
+        with_dot = 0;
     } else if (adc_result_val >= 307) {
         digit_reads[array_counter] = 1;
-        dot_reads[array_counter] = 1;
+        with_dot = 1;
     } else if (adc_result_val >= 205) {
         digit_reads[array_counter] = 1;
-        dot_reads[array_counter] = 0;
+        with_dot = 0;
     } else if (adc_result_val >= 102) {
         digit_reads[array_counter] = 0;
-        dot_reads[array_counter] = 1;
+        with_dot = 1;
     } else {
         digit_reads[array_counter] = 0;
-        dot_reads[array_counter] = 0;
+        with_dot = 0;
+    }
+
+    if (digit_reads[array_counter] != last_digit || with_dot != last_with_dot) {
+        display_number(digit_reads[array_counter], with_dot);
+        last_digit = digit_reads[array_counter];
+        last_with_dot = with_dot;
     }
 
     if (array_counter == 9) {
-        if (digit_reads[array_counter] != last_digit || dot_reads[array_counter] != last_with_dot) {
-            if (!wait) {
-                if (last_digit >= V_CHARGING_THRESHOLD && digit_reads[array_counter] < V_CHARGING_THRESHOLD) {
-                    charging_off();
-                    wait = true;
-                    wait_counter = 0;
-                } else if (every_above_threshold(digit_reads)) {
-                    charging_on();
-                } else {
-                    charging_off();
-                    // blink_counter = 0;
-                }
+        if (!wait) {
+            if (!is_charging_on() && every_above_threshold(digit_reads)) {
+                charging_on();
+            } else if (is_charging_on() && every_below_threshold(digit_reads)) {
+                charging_off();
+                wait = true;
+                wait_counter = 0;
             }
-            display_number(digit_reads[array_counter], dot_reads[array_counter]);
-        }
-        last_digit = digit_reads[array_counter];
-        last_with_dot = dot_reads[array_counter];
-        if (wait) {
+        } else {
             if (wait_counter == 10) {
                 wait = false;
             } else {
@@ -159,7 +162,6 @@ void process_adc_read(const uint16_t adc_result_val) {
         array_counter++;
     }
 
-    blink_counter++;
     adc_processing = false;
 }
 
