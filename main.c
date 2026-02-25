@@ -51,7 +51,6 @@ void init() {
     adc_result = 0;
     wait = false;
     adc_processing = false;
-    display_number(3,1);
 
     // Enable global interrupts
     sei();
@@ -135,7 +134,11 @@ void process_adc_read(const uint16_t adc_result_val) {
         with_dot = 0;
     }
 
-    if (digit_reads[array_counter] != last_digit || with_dot != last_with_dot) {
+    if (wait) {
+        display(1 << (array_counter - 1));
+        last_digit = -1;
+        last_with_dot = -1;
+    } else if (digit_reads[array_counter] != last_digit || with_dot != last_with_dot) {
         display_number(digit_reads[array_counter], with_dot);
         last_digit = digit_reads[array_counter];
         last_with_dot = with_dot;
