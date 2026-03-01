@@ -7,15 +7,16 @@
 
 #define V_CHARGING_THRESHOLD 4
 
-volatile int8_t last_digit;
-volatile int8_t last_with_dot;
+volatile int8_t last_digit = -1;
+volatile int8_t last_with_dot = -1;
 volatile int8_t digit_reads[10];
 volatile uint8_t array_counter = 0;
 volatile uint8_t wait_counter = 0;
 
-volatile bool adc_processing;
-volatile bool wait;
-volatile uint16_t adc_result;
+volatile bool adc_processing = false;
+volatile bool waiting = false;
+volatile bool display_loader = false;
+volatile uint16_t adc_result = 0;
 
 void init() {
     // Timer/Counter Output Compare Match B Interrupt Enable
@@ -28,10 +29,7 @@ void init() {
     TCCR0B |= _BV(CS02) | _BV(CS00);
 
     // enable ADC with 64 prescaler division factor and auto trigger, ADC interrupt enabled
-    // ADCSRA |= _BV(ADPS1) | _BV(ADPS2) | _BV(ADEN) | _BV(ADATE) | _BV(ADIE);
     ADCSRA |= _BV(ADPS1) | _BV(ADPS2) | _BV(ADEN);
-    // set ADC auto trigger source to Timer/Counter Compare Match B
-    // ADCSRB |= _BV(ADTS2) | _BV(ADTS0);
     // select PB4 (ADC2) analog channel with AVCC ref
     ADMUX = _BV(MUX1);
     // disable ADC
@@ -45,12 +43,6 @@ void init() {
     // set the system clock prescaler to 256
     CLKPR = _BV(CLKPCE);
     CLKPR = _BV(CLKPS3);
-
-    last_digit = -1;
-    last_with_dot = -1;
-    adc_result = 0;
-    wait = false;
-    adc_processing = false;
 
     // Enable global interrupts
     sei();
@@ -89,8 +81,6 @@ bool every_below_threshold(int8_t arr[10]) {
 uint16_t adc_read() {
     // start conversion
     ADCSRA |= _BV(ADSC);
-    // select PB4 (ADC2) analog channel with AVCC ref
-    ADMUX = _BV(MUX1);
     // wait for end of conversion
     while (ADCSRA & _BV(ADSC));
     return ADC;
@@ -134,7 +124,7 @@ void process_adc_read(const uint16_t adc_result_val) {
         with_dot = 0;
     }
 
-    if (wait) {
+    if (display_loader) {
         display(1 << (array_counter - 1));
         last_digit = -1;
         last_with_dot = -1;
@@ -145,17 +135,24 @@ void process_adc_read(const uint16_t adc_result_val) {
     }
 
     if (array_counter == 9) {
-        if (!wait) {
-            if (!is_charging_on() && every_above_threshold(digit_reads)) {
-                charging_on();
-            } else if (is_charging_on() && every_below_threshold(digit_reads)) {
-                charging_off();
-                wait = true;
-                wait_counter = 0;
-            }
-        } else {
+        const bool charging_is_on = is_charging_on();
+        const bool can_start_charging = !charging_is_on && every_above_threshold(digit_reads);
+        if (!waiting && can_start_charging) {
+            display_loader = false;
+            charging_on();
+        } else if (waiting && can_start_charging) {
+            display_loader = true;
+        } else if (waiting && !can_start_charging) {
+            display_loader = false;
+        } else if (!waiting && charging_is_on && every_below_threshold(digit_reads)) {
+            charging_off();
+            waiting = true;
+            wait_counter = 0;
+        }
+        if (waiting) {
             if (wait_counter == 10) {
-                wait = false;
+                waiting = false;
+                display_loader = false;
             } else {
                 wait_counter++;
             }
