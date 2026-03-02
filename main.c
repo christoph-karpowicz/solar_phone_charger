@@ -5,26 +5,29 @@
 #include "display.h"
 
 #define V_CHARGING_THRESHOLD 4
+#define ARRAY_COUNTER_MAX 9
+#define WAIT_COUNTER_MAX 10
+#define ADC_PROCESSING_FLAG 15
+#define WAITING_FLAG 14
+#define DISPLAY_LOADER_FLAG 13
+#define LAST_WITH_DOT_FLAG 12
 
-#define all_above_threshold(reads) (reads == 1023)
-#define all_below_threshold(reads) (reads == 0)
+#define all_above_threshold(reads) ((reads & 1023) == 1023)
+#define all_below_threshold(reads) ((reads & 1023) == 0)
+#define set_flag(flag) (digit_reads_and_flags |= (1 << flag))
+#define unset_flag(flag) (digit_reads_and_flags &= ~(1 << flag))
+#define get_flag(flag) ((digit_reads_and_flags & (1 << flag)))
 
 volatile int8_t last_digit = -1;
-volatile int8_t last_with_dot = -1;
 volatile uint8_t array_counter = 0;
 volatile uint8_t wait_counter = 0;
-volatile uint16_t digit_reads = 0;
+volatile uint16_t digit_reads_and_flags = 0;
 
-volatile bool adc_processing = false;
-volatile bool waiting = false;
-volatile bool display_loader = false;
 volatile uint16_t adc_result = 0;
 
 void init() {
     // Timer/Counter Output Compare Match B Interrupt Enable
     TIMSK0 |= _BV(OCIE0B);
-    // set the timer's TOP value
-    OCR0B = 256;
     // set CTC timer mode
     TCCR0A |= _BV(WGM01);
     // set the 1024 timer prescaler
@@ -69,7 +72,7 @@ uint16_t adc_read() {
 }
 
 void process_adc_read(const uint16_t adc_result_val) {
-    adc_processing = true;
+    set_flag(ADC_PROCESSING_FLAG);
     uint8_t digit;
     uint8_t with_dot;
     if (adc_result_val >= 1000){
@@ -108,40 +111,40 @@ void process_adc_read(const uint16_t adc_result_val) {
     }
 
     if (digit >= V_CHARGING_THRESHOLD) {
-        digit_reads |= (1 << array_counter);
+        digit_reads_and_flags |= (1 << array_counter);
     } else {
-        digit_reads &= ~(1 << array_counter);
+        digit_reads_and_flags &= ~(1 << array_counter);
     }
 
-    if (display_loader) {
+    if (get_flag(DISPLAY_LOADER_FLAG)) {
         display(1 << (array_counter - 1));
         last_digit = -1;
-        last_with_dot = -1;
-    } else if (digit != last_digit || with_dot != last_with_dot) {
+        unset_flag(LAST_WITH_DOT_FLAG);
+    } else if (digit != last_digit || with_dot != get_flag(LAST_WITH_DOT_FLAG)) {
         display_number(digit, with_dot);
         last_digit = digit;
-        last_with_dot = with_dot;
+        set_flag(LAST_WITH_DOT_FLAG);
     }
 
-    if (array_counter == 9) {
+    if (array_counter == ARRAY_COUNTER_MAX) {
         const bool charging_is_on = is_charging_on();
-        const bool can_start_charging = !charging_is_on && all_above_threshold(digit_reads);
-        if (!waiting && can_start_charging) {
-            display_loader = false;
+        const bool can_start_charging = !charging_is_on && all_above_threshold(digit_reads_and_flags);
+        if (!(get_flag(WAITING_FLAG)) && can_start_charging) {
+            unset_flag(DISPLAY_LOADER_FLAG);
             charging_on();
-        } else if (waiting && can_start_charging) {
-            display_loader = true;
-        } else if (waiting && !can_start_charging) {
-            display_loader = false;
-        } else if (!waiting && charging_is_on && all_below_threshold(digit_reads)) {
+        } else if (get_flag(WAITING_FLAG) && can_start_charging) {
+            set_flag(DISPLAY_LOADER_FLAG);
+        } else if (get_flag(WAITING_FLAG) && !can_start_charging) {
+            unset_flag(DISPLAY_LOADER_FLAG);
+        } else if (!(get_flag(WAITING_FLAG)) && charging_is_on && all_below_threshold(digit_reads_and_flags)) {
             charging_off();
-            waiting = true;
+            set_flag(WAITING_FLAG);
             wait_counter = 0;
         }
-        if (waiting) {
-            if (wait_counter == 10) {
-                waiting = false;
-                display_loader = false;
+        if (get_flag(WAITING_FLAG)) {
+            if (wait_counter == WAIT_COUNTER_MAX) {
+                unset_flag(WAITING_FLAG);
+                unset_flag(DISPLAY_LOADER_FLAG);
             } else {
                 wait_counter++;
             }
@@ -151,7 +154,7 @@ void process_adc_read(const uint16_t adc_result_val) {
         array_counter++;
     }
 
-    adc_processing = false;
+    unset_flag(ADC_PROCESSING_FLAG);
 }
 
 
@@ -162,7 +165,7 @@ ISR(TIM0_COMPB_vect) {
 int main(void) {
     init();
     while (1) {
-        if (!adc_processing) {
+        if (!get_flag(ADC_PROCESSING_FLAG)) {
             cli();
             process_adc_read(adc_result);
             sei();
