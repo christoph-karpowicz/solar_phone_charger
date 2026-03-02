@@ -1,17 +1,19 @@
 #define F_CPU 37500
 
-#include <util/delay.h>
 #include <avr/interrupt.h>
 #include <stdbool.h>
 #include "display.h"
 
 #define V_CHARGING_THRESHOLD 4
 
+#define all_above_threshold(reads) (reads == 1023)
+#define all_below_threshold(reads) (reads == 0)
+
 volatile int8_t last_digit = -1;
 volatile int8_t last_with_dot = -1;
-volatile int8_t digit_reads[10];
 volatile uint8_t array_counter = 0;
 volatile uint8_t wait_counter = 0;
+volatile uint16_t digit_reads = 0;
 
 volatile bool adc_processing = false;
 volatile bool waiting = false;
@@ -32,8 +34,6 @@ void init() {
     ADCSRA |= _BV(ADPS1) | _BV(ADPS2) | _BV(ADEN);
     // select PB4 (ADC2) analog channel with AVCC ref
     ADMUX = _BV(MUX1);
-    // disable ADC
-    // ADCSRA &= ~_BV(ADEN);
 
     // init display
     DDRB |= _BV(SHIFT_REG_SCK_PIN) | _BV(SHIFT_REG_RCK_PIN) | _BV(SHIFT_REG_SERIAL_PIN);
@@ -60,24 +60,6 @@ void charging_off() {
     PORTB &= ~_BV(PB3);
 }
 
-bool every_above_threshold(int8_t arr[10]) {
-    uint8_t i;
-    for (i = 0; i < 10; i++) {
-        if (arr[i] < V_CHARGING_THRESHOLD)
-            return false;
-    }
-    return true;
-}
-
-bool every_below_threshold(int8_t arr[10]) {
-    uint8_t i;
-    for (i = 0; i < 10; i++) {
-        if (arr[i] >= V_CHARGING_THRESHOLD)
-            return false;
-    }
-    return true;
-}
-
 uint16_t adc_read() {
     // start conversion
     ADCSRA |= _BV(ADSC);
@@ -88,55 +70,62 @@ uint16_t adc_read() {
 
 void process_adc_read(const uint16_t adc_result_val) {
     adc_processing = true;
+    uint8_t digit;
     uint8_t with_dot;
     if (adc_result_val >= 1000){
-        digit_reads[array_counter] = 5;
+        digit = 5;
         with_dot = 0;
     } else if (adc_result_val >= 921) {
-        digit_reads[array_counter] = 4;
+        digit = 4;
         with_dot = 1;
     } else if (adc_result_val >= 820) {
-        digit_reads[array_counter] = 4;
+        digit = 4;
         with_dot = 0;
     } else if (adc_result_val >= 716) {
-        digit_reads[array_counter] = 3;
+        digit = 3;
         with_dot = 1;
     } else if (adc_result_val >= 615) {
-        digit_reads[array_counter] = 3;
+        digit = 3;
         with_dot = 0;
     } else if (adc_result_val >= 512) {
-        digit_reads[array_counter] = 2;
+        digit = 2;
         with_dot = 1;
     } else if (adc_result_val >= 410) {
-        digit_reads[array_counter] = 2;
+        digit = 2;
         with_dot = 0;
     } else if (adc_result_val >= 307) {
-        digit_reads[array_counter] = 1;
+        digit = 1;
         with_dot = 1;
     } else if (adc_result_val >= 205) {
-        digit_reads[array_counter] = 1;
+        digit = 1;
         with_dot = 0;
     } else if (adc_result_val >= 102) {
-        digit_reads[array_counter] = 0;
+        digit = 0;
         with_dot = 1;
     } else {
-        digit_reads[array_counter] = 0;
+        digit = 0;
         with_dot = 0;
+    }
+
+    if (digit >= V_CHARGING_THRESHOLD) {
+        digit_reads |= (1 << array_counter);
+    } else {
+        digit_reads &= ~(1 << array_counter);
     }
 
     if (display_loader) {
         display(1 << (array_counter - 1));
         last_digit = -1;
         last_with_dot = -1;
-    } else if (digit_reads[array_counter] != last_digit || with_dot != last_with_dot) {
-        display_number(digit_reads[array_counter], with_dot);
-        last_digit = digit_reads[array_counter];
+    } else if (digit != last_digit || with_dot != last_with_dot) {
+        display_number(digit, with_dot);
+        last_digit = digit;
         last_with_dot = with_dot;
     }
 
     if (array_counter == 9) {
         const bool charging_is_on = is_charging_on();
-        const bool can_start_charging = !charging_is_on && every_above_threshold(digit_reads);
+        const bool can_start_charging = !charging_is_on && all_above_threshold(digit_reads);
         if (!waiting && can_start_charging) {
             display_loader = false;
             charging_on();
@@ -144,7 +133,7 @@ void process_adc_read(const uint16_t adc_result_val) {
             display_loader = true;
         } else if (waiting && !can_start_charging) {
             display_loader = false;
-        } else if (!waiting && charging_is_on && every_below_threshold(digit_reads)) {
+        } else if (!waiting && charging_is_on && all_below_threshold(digit_reads)) {
             charging_off();
             waiting = true;
             wait_counter = 0;
