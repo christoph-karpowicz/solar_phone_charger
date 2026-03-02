@@ -9,6 +9,8 @@
 #define SHIFT_REG_SCK_PIN PB2
 #define SHIFT_REG_RCK_PIN PB1
 
+#define display_empty() (display(0))
+
 /*
     7
    ___ 
