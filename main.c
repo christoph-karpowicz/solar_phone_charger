@@ -1,4 +1,4 @@
-#define F_CPU 37500
+#define F_CPU 75000 // 9.6 Mhz / 128
 
 #include <avr/interrupt.h>
 #include <stdbool.h>
@@ -6,10 +6,10 @@
 
 #define V_CHARGING_THRESHOLD 4
 #define ARRAY_COUNTER_MAX 9
-#define WAIT_COUNTER_MAX 10
+#define WAIT_COUNTER_MAX 20
+#define NO_V_CHANGE_COUNTER_MAX 400
 
 #define all_above_threshold(reads) (reads == 1023)
-#define all_below_threshold(reads) (reads == 0)
 
 volatile int8_t last_digit = -1;
 volatile int8_t last_with_dot = -1;
@@ -41,9 +41,9 @@ void init() {
     // init driver
     DDRB |= _BV(PB3);
 
-    // set the system clock prescaler to 256
+    // set the system clock prescaler to 128
     CLKPR = _BV(CLKPCE);
-    CLKPR = _BV(CLKPS3);
+    CLKPR = _BV(CLKPS2) | _BV(CLKPS1) | _BV(CLKPS0);
 
     // Enable global interrupts
     sei();
@@ -123,7 +123,7 @@ void process_adc_read(const uint16_t adc_result_val) {
         last_digit = digit;
         last_with_dot = with_dot;
         no_change_counter = 0;
-    } else if (no_change_counter == 200) {
+    } else if (no_change_counter == NO_V_CHANGE_COUNTER_MAX) {
         display_empty();
     } else {
         no_change_counter++;
@@ -139,7 +139,7 @@ void process_adc_read(const uint16_t adc_result_val) {
             display_loader = true;
         } else if (waiting && !can_start_charging) {
             display_loader = false;
-        } else if (!waiting && charging_is_on && all_below_threshold(digit_reads)) {
+        } else if (!waiting && charging_is_on && !all_above_threshold(digit_reads)) {
             charging_off();
             waiting = true;
             wait_counter = 0;
